@@ -17,6 +17,11 @@ class ManeuveringBoard:
         x = magnitude * np.cos(b_rads) * -1; # Reflect about y-axis as we want clockwise angles
         y = magnitude * np.sin(b_rads);
         return x,y
+    
+    def coord2vec(self, x, y) -> tuple[float, float]:
+        magnitude = np.sqrt(x**2 + y**2)
+        bearing = (np.degrees(2*np.arctan(y/((x*-1)+magnitude)))-90)
+        return magnitude, bearing
 
     def draw_vector_from(self, magnitude, bearing, x0=0, y0=0, label="", linestyle="-", color="g"):
         x,y = self.vec2coord(magnitude, bearing)
@@ -40,5 +45,5 @@ class ManeuveringBoard:
 
 
 
-ManeuveringBoard(15, 0)
+a = ManeuveringBoard(15, 0)
 plt.show()
