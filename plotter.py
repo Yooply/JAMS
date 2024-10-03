@@ -16,6 +16,17 @@ def coord2vec(x, y) -> tuple[float, float]:
         bearing += 360
     return magnitude, bearing
 
+# 1 knot = 1 nautical mile / hr
+# 1 nautical mile = 2025.372 yards
+
+def calculate_dist(time, speed):
+    return speed*(time/60)*2025.372
+
+def calculate_time(speed, distance):
+    return (distance/2025.372)*60/speed
+
+def calculate_speed(time, distance):
+    return distance/2025.372*60/time
 
 class Fix:
     def __init__(self, brng, rng, time):
@@ -85,6 +96,7 @@ class ManeuveringBoard:
         x_speed, y_speed = vec2coord(self.scale_speed(self.speed), self.course)
         b_speed = y_speed - slope*x_speed
         self.relative_couse_slope = slope
+        self.relative_couse_intercept = b_course
         self.relative_dx = dX
         self.relative_dy = dY
         self.last_fix = f1
@@ -139,9 +151,6 @@ class ManeuveringBoard:
         # 3 minute rule
         if abs(f1.time-f2.time) == 3:
             return dist/100
-        else:
-            # TODO: Implement log scales for speed time distance
-            pass
 
     def get_true_speed_course(self, vessel_id):
         if vessel_id not in self.fixes or len(self.fixes[vessel_id]) < 2:
@@ -156,6 +165,28 @@ class ManeuveringBoard:
         mag = (mag / 1000*self.scale) * 5
         self.draw_dot(x,y, "True Speed")
         return mag,tbrg
+
+    def get_time_brg_rng_cpa(self, vessel_id):
+        if vessel_id not in self.fixes or len(self.fixes[vessel_id]) < 2:
+            raise IndexError()
+        
+        perpendicular_slope = -1*(self.relative_couse_slope**-1)
+        f1 = self.fixes[vessel_id][-1]
+        # m1x+b1 = m2x+b2
+        # (m1-m2)x + (b1-b2) = 0
+        # x(m1-m2) = b2-b1
+        # x=(b2-b1)/(m1-m2)
+        x_int = self.relative_couse_intercept/(perpendicular_slope-self.relative_couse_slope)
+        y_int = perpendicular_slope*x_int
+        cpa_rng,cpa_brg = coord2vec(x_int,y_int)
+        self.draw_dot(x_int,y_int, "CPA")
+        x0,y0 = vec2coord(f1.range, f1.bearing)
+        dist = np.sqrt((x0-x_int)**2+(y0-y_int)**2)
+        srm = self.get_srm(vessel_id)
+        ttcpa = calculate_time(srm, dist)
+        return cpa_rng, cpa_brg, ttcpa
+
+
         
 
 a = ManeuveringBoard(11, 40)
@@ -172,9 +203,16 @@ print("DRM: ", drm)
 srm = a.get_srm("a")
 print("SRM: ", srm)
 true_speed, true_course = a.get_true_speed_course("a")
-# if dX 
 print("True Speed", true_speed)
 print("True Course", true_course)
+
+cpa_range, cpa_bearing, time_to_cpa = a.get_time_brg_rng_cpa("a")
+
+print("CPA Range", cpa_range)
+print("CPA Bearing", cpa_bearing)
+print("Time To CPA", time_to_cpa)
+
+
 
 # a.draw_vector_from(5000, 90, -5000, 5000, color="r")
 plt.show()
