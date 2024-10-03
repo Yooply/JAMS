@@ -147,10 +147,12 @@ class ManeuveringBoard:
         x1,y1 = vec2coord(f2.range, f2.bearing)
         
         dist = ((x0-x1)**2+(y0-y1)**2)**0.5
-        
+        dT = abs(f1.time-f2.time)
         # 3 minute rule
-        if abs(f1.time-f2.time) == 3:
+        if dT == 3:
             return dist/100
+        else:
+            return calculate_speed(dT, dist)
 
     def get_true_speed_course(self, vessel_id):
         if vessel_id not in self.fixes or len(self.fixes[vessel_id]) < 2:
@@ -186,15 +188,32 @@ class ManeuveringBoard:
         ttcpa = calculate_time(srm, dist)
         return cpa_rng, cpa_brg, ttcpa
 
-
+    def solve_cpa(self, fix1, fix2):
+        self.plot_fix(fix1, "contact")
+        self.plot_fix(fix2, "contact")
+        drm = self.draw_relative_lines("contact")
+        srm = self.get_srm("contact")
+        true_speed, true_course = self.get_true_speed_course("contact")
+        cpa_rng, cpa_brng, t_to_cpa = self.get_time_brg_rng_cpa("contact")
+        print("DRM:               ", drm)
+        print("SRM:               ", srm)
+        print("True Speed:        ", true_speed)
+        print("True Course:       ", true_course)
+        print("CPA Range:         ", cpa_rng)
+        print("CPA Bearing:       ", cpa_brng)
+        print("Time to CPA (RAW): ", t_to_cpa)
+        print("Time to CPA (ADJ): ", t_to_cpa+fix2.time)
         
 
 a = ManeuveringBoard(11, 40)
         
 
-fix1 = Fix(321, 6500, 0)
-fix2 = Fix(330, 5000, 3)
+fix1 = Fix(321, 6500, 1200)
+fix2 = Fix(330, 5000, 1203)
 
+a.solve_cpa(fix1,fix2)
+
+"""
 a.plot_fix(fix1, "a")
 a.plot_fix(fix2, "a")
 drm = a.draw_relative_lines("a")
@@ -211,7 +230,7 @@ cpa_range, cpa_bearing, time_to_cpa = a.get_time_brg_rng_cpa("a")
 print("CPA Range", cpa_range)
 print("CPA Bearing", cpa_bearing)
 print("Time To CPA", time_to_cpa)
-
+"""
 
 
 # a.draw_vector_from(5000, 90, -5000, 5000, color="r")
