@@ -1,5 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from enum import Enum
+
+class DataType(Enum):
+    TIME = 0,
+    SPEED = 1,
+
+class CO_Orders:
+    def __init__(self, request_type, value):
+        self.request_type = request_type
+        self.value = value
 
 def vec2coord(magnitude, bearing, x0=0, y0=0) -> tuple[float, float]:
     bearing = (bearing + 90)
@@ -37,6 +47,14 @@ class Fix:
     def plot(self, ax):
         ax.plot(*vec2coord(self.range, self.bearing), color="r", label=str(self.time))
 
+    def distance(self, other):
+        x0,y0 = vec2coord(self.range, self.bearing)
+        x1,y1 = vec2coord(other.range, other.bearing)
+        return np.sqrt((y0-y1)**2+(x0-x1)**2)
+
+    def to_coords(self):
+        return vec2coord(self.range, self.bearing)
+
 class ManeuveringBoard:
     def __init__(self, s_speed, s_course, scale=1) -> None:
         self.fig, self.ax = plt.subplots()
@@ -44,6 +62,7 @@ class ManeuveringBoard:
         self.fixes = {}
         self.speed = s_speed
         self.course = s_course
+        self.sx, self.sy = vec2coord(self.scale_speed(s_speed), s_course)
         self.draw_board()
         self.draw_dot(*vec2coord(self.scale_speed(s_speed),s_course), f"Speed Dot: {s_speed:.2f} kts, {s_course:.2f}ºT")
         self.ax.set(xlim=(-12000, 12000), xticks=np.arange(0,0),ylim=(-12000,12000), yticks=np.arange(0, 0))
@@ -98,6 +117,7 @@ class ManeuveringBoard:
         b_speed = y_speed - slope*x_speed
         self.relative_couse_slope = slope
         self.relative_couse_intercept = b_course
+        self.speed_line_intercept = b_speed
         self.relative_dx = dX
         self.relative_dy = dY
         self.last_fix = f1
@@ -162,8 +182,13 @@ class ManeuveringBoard:
         srm_dist = self.scale_speed(srm)
         x_speed, y_speed = vec2coord(self.scale_speed(self.speed), self.course)
         
-        x = srm_dist*(1/(np.sqrt(1+self.relative_couse_slope**2))) + x_speed
-        y = srm_dist*(self.relative_couse_slope/(np.sqrt(1+self.relative_couse_slope**2))) + y_speed
+        x = srm_dist*(1/(np.sqrt(1+self.relative_couse_slope**2)))
+        y = srm_dist*(self.relative_couse_slope/(np.sqrt(1+self.relative_couse_slope**2)))
+        if self.relative_dx < 0:
+            x *= -1
+            y *= -1
+        x += x_speed
+        y += y_speed
         mag,tbrg = coord2vec(x,y)
         mag = (mag / 1000*self.scale) * 5
         self.draw_dot(x,y, f"True Speed/Course: {mag:.2f} kts, {tbrg:.2f}ºT")
@@ -221,6 +246,7 @@ class ManeuveringBoard:
         self.plot_fix(new_fix, vessel_id)
 
     def find_tangent_circle_points(self, radius, x, y):
+        # TODO: There is an error in this math. Fix
         # x,y := fix point
         # a,b := radial point
         # a^2+b^2 = r^2
@@ -245,9 +271,6 @@ class ManeuveringBoard:
         y1 = (radius**2-x*x1)/y
         return [(x0,y0), (x1,y1)]
 
-
-
-
     def solve_avoidance(self, radius, time_since_last_fix, vessel_id):
         self.new_fix_from_time(time_since_last_fix, vessel_id)
         ring = plt.Circle((0,0), radius, color="r", fill=False)
@@ -259,17 +282,74 @@ class ManeuveringBoard:
         print(points)
         self.ax.plot([x,points[0][0]], [y, points[0][1]])
         self.ax.plot([x,points[1][0]], [y, points[1][1]])
+    
+    def solve_stationing_speed(self, speed):
+        ring = self.scale_speed(speed)
+        x = (ring-self.speed_line_intercept)/self.relative_couse_slope
+        _, tbrng = coord2vec(x,ring)
+        x0,y0 = vec2coord(self.scale_speed(self.speed), self.course)
+        srm = (np.sqrt((ring-y0)**2+(x-x0)**2) / 1000)*5
+        self.draw_dot(x,ring, f"True Speed/Course: {tbrng:.2f}ºT @ {speed:.2f} kts")
+        return tbrng, srm
+    
+    def solve_stationing_time(self, srm):
+        x_speed,y_speed = self.sx, self.sy
+        srm_dist = self.scale_speed(srm)
+        
+        x = srm_dist*(1/(np.sqrt(1+self.relative_couse_slope**2)))
+        y = srm_dist*(self.relative_couse_slope/(np.sqrt(1+self.relative_couse_slope**2)))
+        if self.relative_dx < 0:
+            x *= -1
+            y *= -1
+        x += x_speed
+        y += y_speed
+        mag,tbrg = coord2vec(x,y)
+        mag = (mag / 1000*self.scale) * 5
+        self.draw_dot(x,y, f"True Speed/Course: {mag:.2f} kts, {tbrg:.2f}ºT")
+        return mag,tbrg
 
+
+
+    def solve_stationing(self, starting_point: Fix, ending_point: Fix, orders: CO_Orders):
+        self.plot_fix(starting_point, "self")
+        self.plot_fix(ending_point, "self")
+        self.draw_relative_lines("self")
+        srm = 0.0
+        tbrng = 0.0
+        tspeed = 0.0
+        time_to_station = 0.0
+        dist = starting_point.distance(ending_point)
+        match orders.request_type:
+            case DataType.SPEED:
+                tspeed = orders.value
+                tbrng, srm = self.solve_stationing_speed(tspeed)
+                time_to_station = calculate_time(srm, dist)
+            case DataType.TIME:
+                time_to_station = orders.value
+                srm = calculate_speed(time_to_station, dist)
+                tspeed, tbrng = self.solve_stationing_time(srm)
+        print("SRM:                   ", srm)
+        print("True Speed:            ", tspeed)
+        print("True Course:           ", tbrng)
+        print("Time to station (RAW): ", time_to_station)
+        print("Time to station (ADJ): ", time_to_station+starting_point.time)
         
 
 
 
-a = ManeuveringBoard(11, 40)
 
-fix1 = Fix(321, 6500, 1200)
-fix2 = Fix(330, 5000, 1203)
+# a = ManeuveringBoard(10, 90)
 
-a.solve_cpa(fix1,fix2)
-a.solve_avoidance(3500, 3, "contact")
+# fix1 = Fix(60, 10000, 1100)
+# fix2 = Fix(58, 8000, 1103)
+
+# a.solve_cpa(fix1,fix2)
+# a.solve_avoidance(3500, 3, "contact")
+
+b = ManeuveringBoard(25,20)
+start = Fix(140, 7000, 1100)
+end = Fix(0,0,-1)
+orders = CO_Orders(DataType.TIME, 24.4)
+b.solve_stationing(start, end, orders)
 
 plt.show()
