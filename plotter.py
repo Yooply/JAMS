@@ -45,7 +45,7 @@ class ManeuveringBoard:
         self.speed = s_speed
         self.course = s_course
         self.draw_board()
-        self.draw_dot(*vec2coord(self.scale_speed(s_speed),s_course), "Speed Dot")
+        self.draw_dot(*vec2coord(self.scale_speed(s_speed),s_course), f"Speed Dot: {s_speed:.2f} kts, {s_course:.2f}ºT")
         self.ax.set(xlim=(-12000, 12000), xticks=np.arange(0,0),ylim=(-12000,12000), yticks=np.arange(0, 0))
     
     def scale_speed(self, speed):
@@ -60,6 +60,7 @@ class ManeuveringBoard:
     
     def draw_dot(self, x, y, label):
         self.ax.plot(x,y, "ro",label=label)
+        self.ax.annotate(label, (x,y))
 
     def draw_board(self):
         circles = []
@@ -104,10 +105,10 @@ class ManeuveringBoard:
         x_course, y_course = self.get_circle_intercept(slope, b_course, 10000*self.scale, dX, dY, x0)
         x_speed_int, y_speed_int = self.get_circle_intercept(slope, b_speed, 10000*self.scale, dX, dY, x_speed)
         x_int, y_int = self.get_circle_intercept(slope, 0, 10000*self.scale, dX, dY)
-        self.draw_dot(x_int, y_int, "DRM")
         self.draw_vector_from(*coord2vec(x_course,y_course), x1,y1, color="c")
         self.draw_vector_from(*coord2vec(x_speed_int,y_speed_int), x_speed,y_speed, color="c")
         _, drm = coord2vec(x_int, y_int)
+        self.draw_dot(x_int, y_int, f"DRM: {drm:.2f}ºT")
         return drm
         
 
@@ -165,7 +166,7 @@ class ManeuveringBoard:
         y = srm_dist*(self.relative_couse_slope/(np.sqrt(1+self.relative_couse_slope**2))) + y_speed
         mag,tbrg = coord2vec(x,y)
         mag = (mag / 1000*self.scale) * 5
-        self.draw_dot(x,y, "True Speed")
+        self.draw_dot(x,y, f"True Speed/Course: {mag:.2f} kts, {tbrg:.2f}ºT")
         return mag,tbrg
 
     def get_time_brg_rng_cpa(self, vessel_id):
@@ -181,7 +182,7 @@ class ManeuveringBoard:
         x_int = self.relative_couse_intercept/(perpendicular_slope-self.relative_couse_slope)
         y_int = perpendicular_slope*x_int
         cpa_rng,cpa_brg = coord2vec(x_int,y_int)
-        self.draw_dot(x_int,y_int, "CPA")
+        self.draw_dot(x_int,y_int, f"CPA: {cpa_rng:.2f} yds, {cpa_brg:.2f}ºT")
         x0,y0 = vec2coord(f1.range, f1.bearing)
         dist = np.sqrt((x0-x_int)**2+(y0-y_int)**2)
         srm = self.get_srm(vessel_id)
@@ -203,35 +204,72 @@ class ManeuveringBoard:
         print("CPA Bearing:       ", cpa_brng)
         print("Time to CPA (RAW): ", t_to_cpa)
         print("Time to CPA (ADJ): ", t_to_cpa+fix2.time)
+
+    def new_fix_from_time(self, time, vessel_id):
+        if vessel_id not in self.fixes or len(self.fixes[vessel_id]) < 2:
+            raise IndexError()
+        srm = self.get_srm(vessel_id)
+        dist = calculate_dist(time,srm)
+        last_fix = self.fixes[vessel_id][-1]
+        
+        x0,y0 = vec2coord(last_fix.range, last_fix.bearing)
+
+        x = dist*(1/(np.sqrt(1+self.relative_couse_slope**2))) + x0
+        y = dist*(self.relative_couse_slope/(np.sqrt(1+self.relative_couse_slope**2))) + y0
+        rng, brng = coord2vec(x,y)
+        new_fix = Fix(brng,rng, last_fix.time+time)
+        self.plot_fix(new_fix, vessel_id)
+
+    def find_tangent_circle_points(self, radius, x, y):
+        # x,y := fix point
+        # a,b := radial point
+        # a^2+b^2 = r^2
+        # m1 = b/a
+        # m2 = -a/b = (y-b)/(x-a)
+        # yb-b^2 = -xa+a^2
+        # yb+xa=a^2+b^2=r^2
+        # b=(r^2-xa)/y
+        # a^2 + ((r^2-xa)/y)^2 = r^2
+        # a^2 + ((r^2-xa)^2)/y^2 = r^2
+        # (y^2*a^2) + (r^2-xa)^2 = r^2*y^2
+        # (y^2*a^2) + (r^2-xa)^2 - r^2*y^2 = 0
+        # (y^2+a^2) + (r^4-2r^2xa+(xa)^2) - r^2*y^2 = 0
+        # (x^2+1)a^2 - 2r^2xa - r^2*y^2 + y^2+r^4 = 0
+        a = (x**2+1)
+        b = -1*(2*radius**2*x)
+        c = -1*(radius**2*y**2) + y**2 + radius**4
+        x0 = (-b + np.sqrt(b**2-4*a*c))/(2*a)
+        x1 = (-b - np.sqrt(b**2-4*a*c))/(2*a)
+        # a^2 + b^2 = r^2
+        y0 = (radius**2-x*x0)/y
+        y1 = (radius**2-x*x1)/y
+        return [(x0,y0), (x1,y1)]
+
+
+
+
+    def solve_avoidance(self, radius, time_since_last_fix, vessel_id):
+        self.new_fix_from_time(time_since_last_fix, vessel_id)
+        ring = plt.Circle((0,0), radius, color="r", fill=False)
+        self.coso_radius = radius
+        self.ax.add_patch(ring)
+        last_fix = self.fixes[vessel_id][-1]
+        x,y=vec2coord(last_fix.range, last_fix.bearing); 
+        points = self.find_tangent_circle_points(radius, x,y)
+        print(points)
+        self.ax.plot([x,points[0][0]], [y, points[0][1]])
+        self.ax.plot([x,points[1][0]], [y, points[1][1]])
+
         
 
+
+
 a = ManeuveringBoard(11, 40)
-        
 
 fix1 = Fix(321, 6500, 1200)
 fix2 = Fix(330, 5000, 1203)
 
 a.solve_cpa(fix1,fix2)
+a.solve_avoidance(3500, 3, "contact")
 
-"""
-a.plot_fix(fix1, "a")
-a.plot_fix(fix2, "a")
-drm = a.draw_relative_lines("a")
-#a.draw_vector_from(10000, drm ,color="b")
-print("DRM: ", drm)
-srm = a.get_srm("a")
-print("SRM: ", srm)
-true_speed, true_course = a.get_true_speed_course("a")
-print("True Speed", true_speed)
-print("True Course", true_course)
-
-cpa_range, cpa_bearing, time_to_cpa = a.get_time_brg_rng_cpa("a")
-
-print("CPA Range", cpa_range)
-print("CPA Bearing", cpa_bearing)
-print("Time To CPA", time_to_cpa)
-"""
-
-
-# a.draw_vector_from(5000, 90, -5000, 5000, color="r")
 plt.show()
