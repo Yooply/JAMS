@@ -1,4 +1,4 @@
-# seasnake-jams
+# JAMS (John's Automatic Moboard Solver)
 
 A small python tool to solve maneuving board problems automatically while visually showing a recreation visually with matplotlib.
 
