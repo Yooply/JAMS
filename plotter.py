@@ -5,8 +5,10 @@ from enum import Enum
 class DataType(Enum):
     TIME = 0,
     SPEED = 1,
+    CPA = 3
 
-class CO_Orders:
+# CO's standing orders
+class COSO:
     def __init__(self, request_type, value):
         self.request_type = request_type
         self.value = value
@@ -79,7 +81,7 @@ class ManeuveringBoard:
     
     def draw_dot(self, x, y, label):
         self.ax.plot(x,y, "ro",label=label)
-        self.ax.annotate(label, (x,y))
+        self.ax.annotate(label, (x,y), fontweight="bold")
 
     def draw_board(self):
         circles = []
@@ -221,6 +223,7 @@ class ManeuveringBoard:
         srm = self.get_srm("contact")
         true_speed, true_course = self.get_true_speed_course("contact")
         cpa_rng, cpa_brng, t_to_cpa = self.get_time_brg_rng_cpa("contact")
+        print("------ Solving Closest Point of Approach (CPA) -------")
         print("DRM:               ", drm)
         print("SRM:               ", srm)
         print("True Speed:        ", true_speed)
@@ -246,27 +249,11 @@ class ManeuveringBoard:
         self.plot_fix(new_fix, vessel_id)
 
     def find_tangent_circle_points(self, radius, x, y):
-        # TODO: There is an error in this math. Fix
-        # x,y := fix point
-        # a,b := radial point
-        # a^2+b^2 = r^2
-        # m1 = b/a
-        # m2 = -a/b = (y-b)/(x-a)
-        # yb-b^2 = -xa+a^2
-        # yb+xa=a^2+b^2=r^2
-        # b=(r^2-xa)/y
-        # a^2 + ((r^2-xa)/y)^2 = r^2
-        # a^2 + ((r^2-xa)^2)/y^2 = r^2
-        # (y^2*a^2) + (r^2-xa)^2 = r^2*y^2
-        # (y^2*a^2) + (r^2-xa)^2 - r^2*y^2 = 0
-        # (y^2+a^2) + (r^4-2r^2xa+(xa)^2) - r^2*y^2 = 0
-        # (x^2+1)a^2 - 2r^2xa - r^2*y^2 + y^2+r^4 = 0
-        a = (x**2+1)
+        a = (x**2+y**2)
         b = -1*(2*radius**2*x)
-        c = -1*(radius**2*y**2) + y**2 + radius**4
+        c = -1*(radius**2*y**2) + radius**4
         x0 = (-b + np.sqrt(b**2-4*a*c))/(2*a)
         x1 = (-b - np.sqrt(b**2-4*a*c))/(2*a)
-        # a^2 + b^2 = r^2
         y0 = (radius**2-x*x0)/y
         y1 = (radius**2-x*x1)/y
         return [(x0,y0), (x1,y1)]
@@ -310,7 +297,7 @@ class ManeuveringBoard:
 
 
 
-    def solve_stationing(self, starting_point: Fix, ending_point: Fix, orders: CO_Orders):
+    def solve_stationing(self, starting_point: Fix, ending_point: Fix, orders: COSO):
         self.plot_fix(starting_point, "self")
         self.plot_fix(ending_point, "self")
         self.draw_relative_lines("self")
@@ -328,6 +315,9 @@ class ManeuveringBoard:
                 time_to_station = orders.value
                 srm = calculate_speed(time_to_station, dist)
                 tspeed, tbrng = self.solve_stationing_time(srm)
+            case _:
+                raise ValueError("CO's standing orders are not valid for this problem type")
+        print("----------------- Solving Stationing -----------------")
         print("SRM:                   ", srm)
         print("True Speed:            ", tspeed)
         print("True Course:           ", tbrng)
@@ -338,18 +328,20 @@ class ManeuveringBoard:
 
 
 
-# a = ManeuveringBoard(10, 90)
+a = ManeuveringBoard(11, 40)
 
-# fix1 = Fix(60, 10000, 1100)
-# fix2 = Fix(58, 8000, 1103)
+fix1 = Fix(321, 6500, 1100)
+fix2 = Fix(330, 5000, 1103)
 
-# a.solve_cpa(fix1,fix2)
-# a.solve_avoidance(3500, 3, "contact")
+a.solve_cpa(fix1,fix2)
+a.solve_avoidance(3500, 3,"contact")
 
+"""
 b = ManeuveringBoard(25,20)
 start = Fix(140, 7000, 1100)
 end = Fix(0,0,-1)
-orders = CO_Orders(DataType.TIME, 24.4)
+orders = COSO(DataType.TIME, 24.4)
 b.solve_stationing(start, end, orders)
+"""
 
 plt.show()
