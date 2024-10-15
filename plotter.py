@@ -28,6 +28,13 @@ def coord2vec(x, y) -> tuple[float, float]:
         bearing += 360
     return magnitude, bearing
 
+def distance(p1, p2):
+    x0,y0 = p1
+    x1,y1 = p2
+    return np.sqrt((x0-x1)**2+(y0-y1)**2)
+    
+
+
 # 1 knot = 1 nautical mile / hr
 # 1 nautical mile = 2025.372 yards
 
@@ -50,9 +57,7 @@ class Fix:
         ax.plot(*vec2coord(self.range, self.bearing), color="r", label=str(self.time))
 
     def distance(self, other):
-        x0,y0 = vec2coord(self.range, self.bearing)
-        x1,y1 = vec2coord(other.range, other.bearing)
-        return np.sqrt((y0-y1)**2+(x0-x1)**2)
+        return distance(vec2coord(self.range, self.bearing), vec2coord(other.range, other.bearing))
 
     def to_coords(self):
         return vec2coord(self.range, self.bearing)
@@ -258,7 +263,7 @@ class ManeuveringBoard:
         y1 = (radius**2-x*x1)/y
         return [(x0,y0), (x1,y1)]
 
-    def solve_avoidance(self, radius, time_since_last_fix, vessel_id):
+    def solve_avoidance(self, radius, time_since_last_fix, vessel_id, use_closer_point=False):
         self.new_fix_from_time(time_since_last_fix, vessel_id)
         ring = plt.Circle((0,0), radius, color="r", fill=False)
         self.coso_radius = radius
@@ -266,9 +271,24 @@ class ManeuveringBoard:
         last_fix = self.fixes[vessel_id][-1]
         x,y=vec2coord(last_fix.range, last_fix.bearing); 
         points = self.find_tangent_circle_points(radius, x,y)
-        print(points)
-        self.ax.plot([x,points[0][0]], [y, points[0][1]])
-        self.ax.plot([x,points[1][0]], [y, points[1][1]])
+        # print(points)
+        speed_dot = (self.sx, self.sy) 
+        dist1 = distance(points[0], speed_dot)
+        dist2 = distance(points[1], speed_dot)
+        if use_closer_point:
+            if (dist1 > dist2):
+                self.ax.plot([x,points[1][0]], [y, points[1][1]])
+            else:
+                self.ax.plot([x,points[0][0]], [y, points[0][1]])
+        else:
+            if (dist1 > dist2):
+                self.ax.plot([x,points[0][0]], [y, points[0][1]])
+            else:
+                self.ax.plot([x,points[1][0]], [y, points[1][1]])
+
+
+
+
     
     def solve_stationing_speed(self, speed):
         ring = self.scale_speed(speed)
@@ -328,10 +348,10 @@ class ManeuveringBoard:
 
 
 
-a = ManeuveringBoard(11, 40)
+a = ManeuveringBoard(10, 90)
 
-fix1 = Fix(321, 6500, 1100)
-fix2 = Fix(330, 5000, 1103)
+fix1 = Fix(60, 10000, 1100)
+fix2 = Fix(58, 8000, 1103)
 
 a.solve_cpa(fix1,fix2)
 a.solve_avoidance(3500, 3,"contact")
