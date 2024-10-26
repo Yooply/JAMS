@@ -5,6 +5,7 @@ from enum import Enum
 class DataType(Enum):
     TIME = 0,
     SPEED = 1,
+    COURSE = 2,
     CPA = 3
 
 # CO's standing orders
@@ -32,8 +33,11 @@ def distance(p1, p2):
     x0,y0 = p1
     x1,y1 = p2
     return np.sqrt((x0-x1)**2+(y0-y1)**2)
-    
-
+ 
+def slope(p1, p2):
+    x0,y0 = p1
+    x1,y1 = p2
+    return (y1-y0)/(x1-x0)
 
 # 1 knot = 1 nautical mile / hr
 # 1 nautical mile = 2025.372 yards
@@ -198,6 +202,7 @@ class ManeuveringBoard:
         y += y_speed
         mag,tbrg = coord2vec(x,y)
         mag = (mag / 1000*self.scale) * 5
+        self.other_truespeed_point = x,y
         self.draw_dot(x,y, f"True Speed/Course: {mag:.2f} kts, {tbrg:.2f}ºT")
         return mag,tbrg
 
@@ -263,7 +268,7 @@ class ManeuveringBoard:
         y1 = (radius**2-x*x1)/y
         return [(x0,y0), (x1,y1)]
 
-    def solve_avoidance(self, radius, time_since_last_fix, vessel_id, use_closer_point=False):
+    def solve_avoidance(self, radius, time_since_last_fix, vessel_id, orders: COSO, use_closer_point=False):
         self.new_fix_from_time(time_since_last_fix, vessel_id)
         ring = plt.Circle((0,0), radius, color="r", fill=False)
         self.coso_radius = radius
@@ -275,16 +280,34 @@ class ManeuveringBoard:
         speed_dot = (self.sx, self.sy) 
         dist1 = distance(points[0], speed_dot)
         dist2 = distance(points[1], speed_dot)
+        chosen_point = 0,0
         if use_closer_point:
             if (dist1 > dist2):
-                self.ax.plot([x,points[1][0]], [y, points[1][1]])
+                chosen_point = points[1]
             else:
-                self.ax.plot([x,points[0][0]], [y, points[0][1]])
+                chosen_point = points[0]
         else:
             if (dist1 > dist2):
-                self.ax.plot([x,points[0][0]], [y, points[0][1]])
+                chosen_point = points[0]
             else:
-                self.ax.plot([x,points[1][0]], [y, points[1][1]])
+                chosen_point = points[1]
+        new_line_slope = slope((x,y), chosen_point)
+        dX = chosen_point[0] - x
+        dY = chosen_point[1] - y
+        intercept = y-x*new_line_slope
+        x_int, y_int = self.get_circle_intercept(new_line_slope,intercept, 10000, dX, dY)
+        self.ax.plot([x,x_int], [y, y_int])
+        ox, oy = self.other_truespeed_point
+        intercept = oy-ox*new_line_slope
+        x_int, y_int = self.get_circle_intercept(new_line_slope,intercept, 10000, -dX, -dY)
+        self.ax.plot([ox,x_int], [oy, y_int])
+        match orders.request_type:
+            case DataType.SPEED:
+                pass
+            case DataType.COURSE:
+                pass
+            case _:
+                pass
 
 
 
@@ -348,13 +371,13 @@ class ManeuveringBoard:
 
 
 
-a = ManeuveringBoard(10, 90)
+a = ManeuveringBoard(11, 40)
 
-fix1 = Fix(60, 10000, 1100)
-fix2 = Fix(58, 8000, 1103)
+fix1 = Fix(321, 6500, 1100)
+fix2 = Fix(330, 5000, 1103)
 
 a.solve_cpa(fix1,fix2)
-a.solve_avoidance(3500, 3,"contact")
+a.solve_avoidance(3500, 3,"contact", use_closer_point=True)
 
 """
 b = ManeuveringBoard(25,20)
